@@ -1,6 +1,7 @@
 #include "it8951e.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 
 #include "esphome/core/gpio.h"
@@ -10,6 +11,8 @@ namespace esphome {
 namespace it8951e {
 
 static const char *const TAG = "it8951e.display";
+static constexpr size_t SPI_STREAM_CHUNK = 512;
+static constexpr uint32_t SPI_YIELD_BYTES = 4096;
 
 void IT8951ESensor::write_two_byte16_(uint16_t type, uint16_t cmd) {
   this->wait_busy_();
@@ -57,11 +60,16 @@ void IT8951ESensor::read_words_(void *buf, uint32_t words) {
   this->write_byte16(0x0000);
   this->wait_busy_();
 
-  for (uint32_t i = 0; i < words; i++) {
-    uint8_t recv[2];
-    this->read_array(recv, sizeof(recv));
-    buffer[i] = encode_uint16(recv[0], recv[1]);
-    if ((i & 0x7F) == 0x7F) {
+  std::array<uint8_t, 64> recv_chunk{};
+  uint32_t offset = 0;
+  while (offset < words) {
+    const uint32_t chunk_words = std::min<uint32_t>(32, words - offset);
+    this->read_array(recv_chunk.data(), chunk_words * 2);
+    for (uint32_t i = 0; i < chunk_words; i++) {
+      buffer[offset + i] = encode_uint16(recv_chunk[i * 2], recv_chunk[i * 2 + 1]);
+    }
+    offset += chunk_words;
+    if ((offset & 0x7F) == 0) {
       delay(1);
     }
   }
@@ -255,17 +263,30 @@ void IT8951ESensor::write_buffer_to_display_(uint16_t x, uint16_t y, uint16_t w,
   this->enable();
   this->write_byte16(0x0000);
 
-  uint32_t transferred = 0;
+  std::array<uint8_t, SPI_STREAM_CHUNK> row_chunk{};
+  const uint32_t row_bytes = w >> 1;
+  const uint32_t x_byte_offset = x >> 1;
+  uint32_t transferred_bytes = 0;
+
   for (uint32_t row = 0; row < h; row++) {
-    for (uint32_t col = 0; col < w; col += 2) {
-      const uint32_t buf_index = static_cast<uint32_t>(y + row) * byte_width + ((x + col) >> 1);
-      uint8_t data = gram[buf_index];
-      if (!this->reversed_) {
-        data = 0xFF - data;
+    const uint8_t *row_ptr = gram + (static_cast<uint32_t>(y + row) * byte_width) + x_byte_offset;
+    uint32_t remaining = row_bytes;
+
+    while (remaining > 0) {
+      const size_t chunk = std::min<size_t>(remaining, row_chunk.size());
+      if (this->reversed_) {
+        this->write_array(row_ptr, chunk);
+      } else {
+        for (size_t i = 0; i < chunk; i++) {
+          row_chunk[i] = static_cast<uint8_t>(0xFF - row_ptr[i]);
+        }
+        this->write_array(row_chunk.data(), chunk);
       }
-      this->transfer_byte(data);
-      transferred++;
-      if ((transferred & 0xFF) == 0xFF) {
+
+      row_ptr += chunk;
+      remaining -= static_cast<uint32_t>(chunk);
+      transferred_bytes += static_cast<uint32_t>(chunk);
+      if ((transferred_bytes % SPI_YIELD_BYTES) == 0) {
         delay(1);
       }
     }
@@ -354,9 +375,18 @@ void IT8951ESensor::clear(bool init) {
 
   this->enable();
   this->write_byte16(0x0000);
-  for (uint32_t i = 0; i < this->get_buffer_length_(); i++) {
-    this->transfer_byte(0xFF);
-    if ((i & 0x00FF) == 0x00FF) {
+
+  std::array<uint8_t, SPI_STREAM_CHUNK> fill_chunk{};
+  fill_chunk.fill(0xFF);
+  uint32_t remaining = this->get_buffer_length_();
+  uint32_t transferred_bytes = 0;
+
+  while (remaining > 0) {
+    const size_t chunk = std::min<size_t>(remaining, fill_chunk.size());
+    this->write_array(fill_chunk.data(), chunk);
+    remaining -= static_cast<uint32_t>(chunk);
+    transferred_bytes += static_cast<uint32_t>(chunk);
+    if ((transferred_bytes % SPI_YIELD_BYTES) == 0) {
       delay(1);
     }
   }
