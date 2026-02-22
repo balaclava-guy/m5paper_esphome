@@ -18,20 +18,30 @@ from esphome.const import (
     CONF_FULL_UPDATE_EVERY,
 )
 
-DEPENDENCIES = ['spi']
+DEPENDENCIES = ["spi"]
 
-it8951e_ns = cg.esphome_ns.namespace('it8951e')
+it8951e_ns = cg.esphome_ns.namespace("it8951e")
 IT8951ESensor = it8951e_ns.class_(
-    'IT8951ESensor', cg.PollingComponent, spi.SPIDevice, display.DisplayBuffer, display.Display
+    "IT8951ESensor",
+    cg.PollingComponent,
+    spi.SPIDevice,
+    display.DisplayBuffer,
+    display.Display,
 )
+
 ClearAction = it8951e_ns.class_("ClearAction", automation.Action)
 UpdateSlowAction = it8951e_ns.class_("UpdateSlowAction", automation.Action)
 DrawAction = it8951e_ns.class_("DrawAction", automation.Action)
 
+# New actions
+UpdateFastAction = it8951e_ns.class_("UpdateFastAction", automation.Action)
+UpdateA2Action = it8951e_ns.class_("UpdateA2Action", automation.Action)
+UpdateGL16Action = it8951e_ns.class_("UpdateGL16Action", automation.Action)
+
 it8951eModel = it8951e_ns.enum("it8951eModel")
 
 MODELS = {
-    "M5EPD": it8951eModel.M5EPD
+    "M5EPD": it8951eModel.M5EPD,
 }
 
 CONFIG_SCHEMA = cv.All(
@@ -46,9 +56,7 @@ CONFIG_SCHEMA = cv.All(
                 cv.positive_time_period_milliseconds,
                 cv.Range(max=core.TimePeriod(milliseconds=500)),
             ),
-            cv.Optional(CONF_MODEL, default="M5EPD"): cv.enum(
-                MODELS, upper=True, space="_"
-            ),
+            cv.Optional(CONF_MODEL, default="M5EPD"): cv.enum(MODELS, upper=True, space="_"),
             cv.Optional(CONF_SLEEP_WHEN_DONE, default=True): cv.boolean,
             cv.Optional(CONF_FULL_UPDATE_EVERY, default=60): cv.int_range(min=0, max=4294967295),
         }
@@ -85,36 +93,87 @@ CONFIG_SCHEMA = cv.All(
     ),
 )
 
+# New: fast-ish modes
+@automation.register_action(
+    "it8951e.updatefast",
+    UpdateFastAction,
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(IT8951ESensor),
+        }
+    ),
+)
+@automation.register_action(
+    "it8951e.updatea2",
+    UpdateA2Action,
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(IT8951ESensor),
+        }
+    ),
+)
+@automation.register_action(
+    "it8951e.updategl16",
+    UpdateGL16Action,
+    automation.maybe_simple_id(
+        {
+            cv.GenerateID(): cv.use_id(IT8951ESensor),
+        }
+    ),
+)
+
 async def it8951e_clear_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var
 
+# All of these actions are “simple id” actions so we can use the same to_code helper.
+async def it8951e_simple_parented_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+# Bind the new actions to the shared helper
+it8951e_updateslow_to_code = it8951e_simple_parented_action_to_code
+it8951e_draw_to_code = it8951e_simple_parented_action_to_code
+it8951e_updatefast_to_code = it8951e_simple_parented_action_to_code
+it8951e_updatea2_to_code = it8951e_simple_parented_action_to_code
+it8951e_updategl16_to_code = it8951e_simple_parented_action_to_code
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
+
     if cv.Version.parse(ESPHOME_VERSION) < cv.Version.parse("2023.12.0"):
         await cg.register_component(var, config)
+
     await display.register_display(var, config)
     await spi.register_spi_device(var, config)
 
     if CONF_MODEL in config:
         cg.add(var.set_model(config[CONF_MODEL]))
+
     if CONF_LAMBDA in config:
         lambda_ = await cg.process_lambda(
             config[CONF_LAMBDA], [(display.DisplayRef, "it")], return_type=cg.void
         )
         cg.add(var.set_writer(lambda_))
+
     if CONF_RESET_PIN in config:
         reset = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
         cg.add(var.set_reset_pin(reset))
+
     if CONF_BUSY_PIN in config:
         busy = await cg.gpio_pin_expression(config[CONF_BUSY_PIN])
         cg.add(var.set_busy_pin(busy))
+
     if CONF_REVERSED in config:
         cg.add(var.set_reversed(config[CONF_REVERSED]))
+
     if CONF_RESET_DURATION in config:
         cg.add(var.set_reset_duration(config[CONF_RESET_DURATION]))
+
     if CONF_SLEEP_WHEN_DONE in config:
         cg.add(var.set_sleep_when_done(config[CONF_SLEEP_WHEN_DONE]))
+
     if CONF_FULL_UPDATE_EVERY in config:
         cg.add(var.set_full_update_every(config[CONF_FULL_UPDATE_EVERY]))
