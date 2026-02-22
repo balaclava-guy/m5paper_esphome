@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "esphome/core/component.h"
@@ -27,6 +28,7 @@ class IT8951EDisplay : public display::DisplayBuffer, public PollingComponent {
   void set_busy_pin(GPIOPin *pin) { busy_pin_ = pin; }
   void set_rotation(int rotation) { rotation_ = rotation; }
   void set_reversed(bool reversed) { reversed_ = reversed; }
+  void set_reset_duration(uint32_t ms) { reset_duration_ms_ = ms; }
 
   void setup() override;
   void update() override;
@@ -49,20 +51,19 @@ class IT8951EDisplay : public display::DisplayBuffer, public PollingComponent {
 
   int rotation_{0};
   bool reversed_{false};
+  uint32_t reset_duration_ms_{200};
 };
 
-class IT8951EUpdateAction : public Action<TEMPLATABLE_VALUE(UpdateMode), TEMPLATABLE_VALUE(bool)> {
+class IT8951EUpdateAction : public Action<> {
  public:
   explicit IT8951EUpdateAction(IT8951EDisplay *parent) : parent_(parent) {}
 
-  void set_mode(UpdateMode mode) { this->mode_ = mode; }
-  void set_full(bool full) { this->full_ = full; }
-
-  void play(TEMPLATABLE_VALUE(UpdateMode) mode, TEMPLATABLE_VALUE(bool) full) override {}
+  void set_mode(UpdateMode mode) { mode_ = mode; }
+  void set_full(bool full) { full_ = full; }
 
   void play() override {
     if (parent_ == nullptr) return;
-    parent_->refresh_panel_(this->mode_, this->full_);
+    parent_->refresh_panel_(mode_, full_);
   }
 
  protected:
