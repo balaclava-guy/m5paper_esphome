@@ -1,0 +1,345 @@
+substitutions:
+  name: it8951e-test-suite
+  friendly_name: IT8951E Test Suite
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.2.1
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: render_current_page
+
+esp32:
+  board: m5stack_paper
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ./components
+
+logger:
+  level: DEBUG
+
+psram:
+
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO12
+  miso_pin: GPIO13
+
+m5paper:
+  battery_power_pin: GPIO5
+  main_power_pin: GPIO2
+
+font:
+  - file: "gfonts://Roboto Mono"
+    id: mono_16
+    size: 16
+  - file: "gfonts://Roboto Mono"
+    id: mono_22
+    size: 22
+  - file: "gfonts://Roboto Mono"
+    id: mono_36
+    size: 36
+
+image:
+  - file: "/config/esphome/images/general/bcg-monogram-white.png"
+    id: status_logo
+    type: BINARY
+    resize: 90x90
+
+globals:
+  - id: current_page
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: anim_frame
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+display:
+  - platform: it8951e
+    id: m5paper_display
+    model: M5EPD
+    cs_pin: GPIO15
+    reset_pin: GPIO23
+    reset_duration: 100ms
+    busy_pin: GPIO27
+    rotation: 0
+    reversed: false
+    update_interval: never
+    full_update_every: 0
+    sleep_when_done: true
+    lambda: |-
+      const int page = id(current_page);
+
+      Color white(255, 255, 255);
+      Color black(0, 0, 0);
+      Color dark(64, 64, 64);
+
+      auto draw_status_helper = [&](const char *title, const char *mode_name, bool full) {
+        it.filled_rectangle(0, 0, 960, 96, black);
+        it.print(12, 8, id(mono_22), white, title);
+        it.printf(12, 44, id(mono_16), white, "Page %d/9  Mode %s  full=%s", page + 1, mode_name, full ? "true" : "false");
+        it.image(860, 4, id(status_logo));
+        it.line(0, 96, 959, 96, black);
+      };
+
+      it.fill(white);
+
+      switch (page) {
+        case 0:
+          draw_status_helper("Status / Home", "GC16", true);
+          it.print(24, 120, id(mono_22), black, "Jog dial test navigation");
+          it.print(24, 160, id(mono_16), black, "Right: next page");
+          it.print(24, 188, id(mono_16), black, "Left: previous page");
+          it.print(24, 216, id(mono_16), black, "Center: refresh current page");
+          it.print(24, 244, id(mono_16), black, "Center double click: return home");
+          it.print(24, 284, id(mono_16), dark, "Modes: DU, DU4, A2, GL16, GC16, GLR16, GLD16, INIT");
+          it.rectangle(20, 320, 920, 190, black);
+          it.print(40, 344, id(mono_16), black, "This page also validates image loading from:");
+          it.print(40, 372, id(mono_16), black, "/config/esphome/images/general/bcg-monogram-white.png");
+          it.print(40, 420, id(mono_16), black, "Use this helper bar to verify title/mode/full metadata on each page.");
+          break;
+
+        case 1:
+          draw_status_helper("DU: fast B/W partial", "DU", false);
+          it.print(24, 120, id(mono_22), black, "High-contrast text and cursor movement");
+          it.print(24, 158, id(mono_16), black, "Expected: fastest response, strongest ghosting over time");
+          for (int i = 0; i < 10; i++) {
+            it.printf(40, 205 + i * 24, id(mono_16), black, "DU line %02d  0123456789", i + 1);
+          }
+          it.filled_rectangle(700 + ((id(anim_frame) % 6) * 35), 385, 120, 60, black);
+          break;
+
+        case 2:
+          draw_status_helper("DU4: fast 4-gray", "DU4", false);
+          it.print(24, 120, id(mono_22), black, "Anti-aliased text with reduced contrast");
+          for (int i = 0; i < 4; i++) {
+            const int g = i * 85;
+            it.filled_rectangle(40 + i * 150, 185, 120, 120, Color(g, g, g));
+            it.printf(55 + i * 150, 320, id(mono_16), black, "Gray %d", i);
+          }
+          it.print(40, 380, id(mono_16), black, "DU4 is useful for quick menu transitions with grayscale hints.");
+          break;
+
+        case 3:
+          draw_status_helper("A2: animation page", "A2", false);
+          it.print(24, 120, id(mono_22), black, "Fast paging / simple animation test");
+          it.print(24, 154, id(mono_16), black, "Expected: very fast updates, some ghosting build-up");
+          it.rectangle(40, 210, 880, 220, black);
+          {
+            const int frame = id(anim_frame) % 16;
+            const int x = 60 + frame * 50;
+            it.filled_rectangle(x, 235, 120, 170, black);
+            it.printf(42, 450, id(mono_16), black, "Frame: %d", id(anim_frame));
+          }
+          break;
+
+        case 4:
+          draw_status_helper("GL16: sparse text", "GL16", false);
+          it.print(24, 120, id(mono_22), black, "Sparse content on white background");
+          it.print(24, 156, id(mono_16), black, "Expected: reduced flash compared to GC16");
+          it.print(80, 240, id(mono_36), black, "Roboto Mono");
+          it.print(80, 300, id(mono_22), black, "The quick brown fox jumps over the lazy dog.");
+          it.line(80, 345, 870, 345, black);
+          it.line(80, 365, 870, 365, black);
+          break;
+
+        case 5:
+          draw_status_helper("GC16: full grayscale", "GC16", true);
+          it.print(24, 120, id(mono_22), black, "16-level full gradient");
+          for (int i = 0; i < 16; i++) {
+            const int x = 30 + i * 56;
+            const int gray = i * 17;
+            it.filled_rectangle(x, 170, 52, 280, Color(gray, gray, gray));
+            it.printf(x + 6, 462, id(mono_16), black, "%02d", i);
+          }
+          break;
+
+        case 6:
+          draw_status_helper("GLR16: checkerboard", "GLR16", false);
+          it.print(24, 120, id(mono_22), black, "Checkerboard + diagonal stress pattern");
+          for (int y = 170; y < 470; y += 30) {
+            for (int x = 40; x < 920; x += 30) {
+              const bool on = ((x / 30) + (y / 30)) % 2 == 0;
+              const int g = on ? 32 : 224;
+              it.filled_rectangle(x, y, 30, 30, Color(g, g, g));
+            }
+          }
+          for (int i = 0; i < 20; i++) {
+            it.line(40 + i * 44, 170, 40, 170 + i * 15, black);
+          }
+          break;
+
+        case 7:
+          draw_status_helper("GLD16: mixed graphics", "GLD16", false);
+          it.print(24, 120, id(mono_22), black, "Text + boxes + circles for artifact check");
+          it.rectangle(40, 170, 420, 300, black);
+          it.filled_rectangle(60, 190, 140, 120, Color(40, 40, 40));
+          it.filled_rectangle(220, 190, 220, 120, Color(140, 140, 140));
+          it.circle(520, 250, 60, black);
+          it.filled_circle(680, 250, 60, Color(200, 200, 200));
+          it.filled_circle(840, 250, 60, Color(80, 80, 80));
+          it.print(60, 350, id(mono_16), black, "Observe edges and residual shadows after repeated toggles.");
+          break;
+
+        case 8:
+          draw_status_helper("INIT: ghost cleanup", "INIT", true);
+          it.print(24, 120, id(mono_22), black, "INIT is a full clear waveform");
+          it.print(24, 156, id(mono_16), black, "It should erase ghosting and settle panel to white.");
+          it.print(24, 192, id(mono_16), black, "After running INIT, return to page 0 or 5 for visual comparison.");
+          break;
+
+        default:
+          draw_status_helper("Fallback", "GC16", true);
+          it.print(24, 120, id(mono_22), black, "Invalid page index");
+          break;
+      }
+
+script:
+  - id: render_current_page
+    mode: restart
+    then:
+      - component.update: m5paper_display
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 0;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: GC16
+                full: true
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 1;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: DU
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: DU4
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 3;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: A2
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 4;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: GL16
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 5;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: GC16
+                full: true
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 6;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: GLR16
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 7;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: GLD16
+                full: false
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 8;'
+          then:
+            - it8951e.update:
+                id: m5paper_display
+                mode: INIT
+                full: true
+
+binary_sensor:
+  - platform: gpio
+    id: jog_left
+    internal: true
+    pin:
+      number: GPIO39
+      mode: INPUT
+      inverted: true
+    on_release:
+      then:
+        - lambda: |-
+            id(current_page)--;
+            if (id(current_page) < 0) {
+              id(current_page) = 8;
+            }
+        - script.execute: render_current_page
+
+  - platform: gpio
+    id: jog_right
+    internal: true
+    pin:
+      number: GPIO37
+      mode: INPUT
+      inverted: true
+    on_release:
+      then:
+        - lambda: |-
+            id(current_page) = (id(current_page) + 1) % 9;
+        - script.execute: render_current_page
+
+  - platform: gpio
+    id: jog_center
+    internal: true
+    pin:
+      number: GPIO38
+      mode: INPUT
+      inverted: true
+    on_multi_click:
+      - timing:
+          - ON for at most 350ms
+          - OFF for at most 300ms
+          - ON for at most 350ms
+          - OFF for at least 200ms
+        then:
+          - lambda: |-
+              id(current_page) = 0;
+          - script.execute: render_current_page
+      - timing:
+          - ON for at most 350ms
+          - OFF for at least 300ms
+        then:
+          - script.execute: render_current_page
+
+interval:
+  - interval: 750ms
+    then:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 3;'
+          then:
+            - lambda: |-
+                id(anim_frame)++;
+            - script.execute: render_current_page
