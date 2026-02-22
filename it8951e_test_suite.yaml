@@ -235,7 +235,7 @@ display:
         it.filled_rectangle(520, 26, 320, 44, white);
         it.rectangle(520, 26, 320, 44, dark);
         it.print(536, 40, id(mono_16), black, progress_line);
-        it.image(860, 4, id(status_logo));
+        it.image(860, 4, id(status_logo), white, black);
         it.line(0, 96, 959, 96, black);
       };
 
