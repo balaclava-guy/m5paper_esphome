@@ -93,8 +93,8 @@ class IT8951ESensor
 
   void get_device_info_(IT8951DevInfo *info);
   void reset_();
-  void wait_busy_(uint32_t timeout = 1000);
-  void check_busy_(uint32_t timeout = 1000);
+  void wait_busy_(uint32_t timeout = 2000);
+  void check_busy_(uint32_t timeout = 6000);
   uint16_t get_vcom_();
   void set_vcom_(uint16_t vcom);
 

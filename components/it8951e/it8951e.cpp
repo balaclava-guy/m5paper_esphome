@@ -61,6 +61,9 @@ void IT8951ESensor::read_words_(void *buf, uint32_t words) {
     uint8_t recv[2];
     this->read_array(recv, sizeof(recv));
     buffer[i] = encode_uint16(recv[0], recv[1]);
+    if ((i & 0x7F) == 0x7F) {
+      delay(1);
+    }
   }
 
   this->disable();
@@ -125,6 +128,7 @@ void IT8951ESensor::wait_busy_(uint32_t timeout) {
       ESP_LOGE(TAG, "BUSY pin timeout");
       break;
     }
+    delay(1);
   }
 }
 
@@ -141,6 +145,7 @@ void IT8951ESensor::check_busy_(uint32_t timeout) {
       ESP_LOGE(TAG, "LUT busy timeout: %u", static_cast<unsigned int>(status));
       break;
     }
+    delay(1);
   }
 }
 
@@ -250,6 +255,7 @@ void IT8951ESensor::write_buffer_to_display_(uint16_t x, uint16_t y, uint16_t w,
   this->enable();
   this->write_byte16(0x0000);
 
+  uint32_t transferred = 0;
   for (uint32_t row = 0; row < h; row++) {
     for (uint32_t col = 0; col < w; col += 2) {
       const uint32_t buf_index = static_cast<uint32_t>(y + row) * byte_width + ((x + col) >> 1);
@@ -258,6 +264,10 @@ void IT8951ESensor::write_buffer_to_display_(uint16_t x, uint16_t y, uint16_t w,
         data = 0xFF - data;
       }
       this->transfer_byte(data);
+      transferred++;
+      if ((transferred & 0xFF) == 0xFF) {
+        delay(1);
+      }
     }
   }
 
@@ -346,6 +356,9 @@ void IT8951ESensor::clear(bool init) {
   this->write_byte16(0x0000);
   for (uint32_t i = 0; i < this->get_buffer_length_(); i++) {
     this->transfer_byte(0xFF);
+    if ((i & 0x00FF) == 0x00FF) {
+      delay(1);
+    }
   }
   this->disable();
   this->write_command_(IT8951_TCON_LD_IMG_END);

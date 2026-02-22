@@ -1,13 +1,13 @@
 substitutions:
-  name: it8951e-test-suite
-  friendly_name: IT8951E Test Suite
+  name: it8951e-demo-suite
+  friendly_name: IT8951E Demo Suite
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   min_version: 2026.2.1
   on_boot:
-    priority: -100
+    priority: -200
     then:
       - script.execute: render_current_page
 
@@ -30,7 +30,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "It8951E-Test-Suite"
+    ssid: "It8951E-Demo-Suite"
     password: !secret fallback_password
 
 captive_portal:
@@ -56,13 +56,13 @@ m5paper:
   main_power_pin: GPIO2
 
 font:
-  - file: "gfonts://Roboto Mono"
+  - file: "gfonts://Roboto Mono@medium"
     id: mono_16
     size: 16
-  - file: "gfonts://Roboto Mono"
+  - file: "gfonts://Roboto Mono@medium"
     id: mono_22
     size: 22
-  - file: "gfonts://Roboto Mono"
+  - file: "gfonts://Roboto Mono@medium"
     id: mono_36
     size: 36
 
@@ -97,6 +97,80 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+  - id: test_progress_state
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: test_start_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: test_last_duration_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: test_runs
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: test_completed
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: report_pending
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: anim_target_frames
+    type: int
+    restore_value: no
+    initial_value: "12"
+  - id: anim_last_sample_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: anim_last_sample_frame
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: anim_fps_x10
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: test_progress_pct
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: update_started_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: display_last_update_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: display_max_update_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+  - id: nav_interrupt_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: home_reset_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: slow_update_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+text_sensor:
+  - platform: template
+    id: it8951e_demo_report
+    name: "IT8951E Demo Report"
+    update_interval: never
 
 display:
   - platform: it8951e
@@ -113,7 +187,8 @@ display:
     sleep_when_done: true
     lambda: |-
       const int page = id(current_page);
-      const bool active = id(test_active);
+      const bool demo_running = id(test_progress_state) == 1;
+      const bool demo_complete = id(test_progress_state) == 2;
 
       const int test_x = 20;
       const int test_y = 144;
@@ -124,46 +199,95 @@ display:
       Color black(0, 0, 0);
       Color dark(80, 80, 80);
 
+      int progress_pct = id(test_progress_pct);
+      if (progress_pct < 0) {
+        progress_pct = 0;
+      }
+      if (progress_pct > 100) {
+        progress_pct = 100;
+      }
+
       if (id(needs_full_clear)) {
         it.fill(white);
         id(needs_full_clear) = false;
       }
 
       auto draw_header = [&](const char *title, const char *subtitle) {
+        char progress_line[48];
+        const char spinner_chars[4] = {'|', '/', '-', '\\'};
+        const char spinner = spinner_chars[id(anim_frame) & 0x03];
+
+        if (page == 0) {
+          snprintf(progress_line, sizeof(progress_line), "Status: Ready");
+        } else if (demo_complete) {
+          snprintf(progress_line, sizeof(progress_line), "Status: Complete");
+        } else if (demo_running && page == 3) {
+          snprintf(progress_line, sizeof(progress_line), "Status: Live %d%% %c", progress_pct, spinner);
+        } else if (demo_running) {
+          snprintf(progress_line, sizeof(progress_line), "Status: Running %d%% %c", progress_pct, spinner);
+        } else {
+          snprintf(progress_line, sizeof(progress_line), "Status: Ready");
+        }
+
         it.filled_rectangle(0, 0, 960, 96, black);
         it.print(12, 8, id(mono_22), white, title);
         it.print(12, 44, id(mono_16), white, subtitle);
+        it.filled_rectangle(520, 26, 320, 44, white);
+        it.rectangle(520, 26, 320, 44, dark);
+        it.print(536, 40, id(mono_16), black, progress_line);
         it.image(860, 4, id(status_logo));
         it.line(0, 96, 959, 96, black);
       };
 
       auto draw_splash = [&](const char *mode, const char *expected, const char *notes) {
         it.filled_rectangle(0, 98, 960, 442, white);
-        it.printf(20, 112, id(mono_22), black, "Page %d/9  Mode %s  (SPLASH)", page + 1, mode);
+        it.printf(20, 112, id(mono_22), black, "Demo %d/8  Mode %s  (SPLASH)", page, mode);
         it.print(20, 158, id(mono_16), black, "Expected:");
         it.print(20, 186, id(mono_16), black, expected);
         it.print(20, 242, id(mono_16), black, "Setup / teardown:");
-        it.print(20, 270, id(mono_16), black, "- Entering a test runs a GC16 conditioning pass");
-        it.print(20, 298, id(mono_16), black, "- Leaving a test returns here without forcing full-screen redraw");
+        it.print(20, 270, id(mono_16), black, "- Entering a demo renders with the selected waveform mode");
+        it.print(20, 298, id(mono_16), black, "- Leaving a demo returns here and keeps state responsive");
         it.print(20, 326, id(mono_16), black, notes);
-        it.print(20, 384, id(mono_16), dark, "Center: run this test   Left/Right: change test   Double-center: home");
+        it.print(20, 384, id(mono_16), dark, "Center: run this demo   Left/Right: change demo   Double-center: home");
+      };
+
+      auto draw_controls_strip = [&]() {
+        it.filled_rectangle(0, 500, 960, 40, black);
+        it.print(12, 512, id(mono_16), white, "Demo complete  |  Center: rerun  |  Left/Right: change demo  |  Double-center: home");
+      };
+
+      auto draw_progress_strip = [&]() {
+        const int bar_x = 12;
+        const int bar_y = 508;
+        const int bar_w = 936;
+        const int bar_h = 24;
+        const int inner_w = bar_w - 4;
+        const int fill_w = (inner_w * progress_pct) / 100;
+
+        it.filled_rectangle(0, 500, 960, 40, white);
+        it.rectangle(0, 500, 960, 40, black);
+        it.rectangle(bar_x, bar_y, bar_w, bar_h, black);
+        if (fill_w > 0) {
+          it.filled_rectangle(bar_x + 2, bar_y + 2, fill_w, bar_h - 4, black);
+        }
       };
 
       if (page == 0) {
-        draw_header("IT8951E Test Harness", "Status/Home");
+        draw_header("IT8951E Demo Suite", "Home");
         it.filled_rectangle(0, 98, 960, 442, white);
         it.print(20, 118, id(mono_22), black, "Navigation");
-        it.print(20, 156, id(mono_16), black, "- Right/Left moves between pages");
-        it.print(20, 184, id(mono_16), black, "- Center enters/reruns selected test");
-        it.print(20, 212, id(mono_16), black, "- Double-center returns here");
-        it.print(20, 258, id(mono_16), black, "This suite keeps a stable header and updates mainly in the test window.");
-        it.print(20, 286, id(mono_16), black, "Use pages 1..8 to run DU/DU4/A2/GL16/GC16/GLR16/GLD16/INIT.");
+        it.print(20, 156, id(mono_16), black, "- Right/Left moves between demos");
+        it.print(20, 184, id(mono_16), black, "- Center enters/reruns selected demo");
+        it.print(20, 212, id(mono_16), black, "- Double-center returns here with a clean reset");
+        it.print(20, 240, id(mono_16), black, "- Long-center exports JSON demo report to logs");
+        it.print(20, 258, id(mono_16), black, "This demo suite keeps a stable header and updates mainly in the demo window.");
+        it.print(20, 286, id(mono_16), black, "Use demos 1..8 to run DU/DU4/A2/GL16/GC16/GLR16/GLD16/INIT.");
         it.print(20, 350, id(mono_16), dark, "Image path: /config/esphome/images/general/bcg-monogram-white.png");
         id(anim_initialized) = false;
         return;
       }
 
-      if (!active) {
+      if (!demo_running && !demo_complete) {
         switch (page) {
           case 1:
             draw_header("DU", "Fast B/W partial updates");
@@ -195,11 +319,11 @@ display:
             break;
           case 8:
             draw_header("INIT", "Full panel cleanup");
-            draw_splash("INIT", "Initialization waveform that clears residual ghosting.", "Running this test intentionally ends on a clean white panel.");
+            draw_splash("INIT", "Initialization waveform that clears residual ghosting.", "Running this demo intentionally ends on a clean white panel.");
             break;
           default:
-            draw_header("Invalid page", "Returning to home is recommended");
-            draw_splash("N/A", "Unexpected page index", "Use double-center to reset.");
+            draw_header("Invalid demo", "Returning to home is recommended");
+            draw_splash("N/A", "Unexpected demo index", "Use double-center to reset.");
             break;
         }
         id(anim_initialized) = false;
@@ -208,7 +332,7 @@ display:
 
       switch (page) {
         case 1:
-          draw_header("DU", "Running");
+          draw_header("DU", "Fast B/W partial updates");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           it.print(test_x + 18, test_y + 14, id(mono_16), black, "High-contrast dynamic text:");
@@ -220,7 +344,7 @@ display:
           break;
 
         case 2:
-          draw_header("DU4", "Running");
+          draw_header("DU4", "Fast 4-gray update");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           for (int i = 0; i < 4; i++) {
@@ -233,11 +357,14 @@ display:
           break;
 
         case 3: {
-          draw_header("A2", "Running animation window");
+          if (!id(anim_initialized) || demo_complete) {
+            draw_header("A2", "Fast animation mode");
+          }
           if (!id(anim_initialized)) {
             it.filled_rectangle(test_x, test_y, test_w, test_h, white);
             it.rectangle(test_x, test_y, test_w, test_h, black);
-            it.print(test_x + 20, test_y + 16, id(mono_16), black, "A2: small-region motion test");
+            it.print(test_x + 20, test_y + 16, id(mono_16), black, "A2: small-region motion demo");
+            it.print(test_x + 20, test_y + 312, id(mono_16), black, "Center: restart demo   Left/Right: switch demo");
             id(anim_prev_x) = test_x + 40;
             id(anim_initialized) = true;
           }
@@ -245,16 +372,19 @@ display:
           const int w = 92;
           const int h = 170;
           const int x = test_x + 40 + ((id(anim_frame) % 16) * 48);
+          const int fps_whole = id(anim_fps_x10) / 10;
+          const int fps_tenths = id(anim_fps_x10) % 10;
           it.filled_rectangle(id(anim_prev_x), y, w, h, white);
           it.filled_rectangle(x, y, w, h, black);
-          it.printf(test_x + 20, test_y + 286, id(mono_16), black, "frame=%d", id(anim_frame));
-          it.print(test_x + 220, test_y + 286, id(mono_16), black, "If still slow, switch mode/page immediately with Right/Left.");
+          it.filled_rectangle(test_x + 20, test_y + 274, 440, 34, white);
+          it.printf(test_x + 20, test_y + 284, id(mono_16), black, "frame=%d/%d  fps=%d.%d", id(anim_frame),
+                    id(anim_target_frames), fps_whole, fps_tenths);
           id(anim_prev_x) = x;
           break;
         }
 
         case 4:
-          draw_header("GL16", "Running");
+          draw_header("GL16", "Sparse text on white");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           it.print(test_x + 24, test_y + 40, id(mono_36), black, "Roboto Mono");
@@ -266,7 +396,7 @@ display:
           break;
 
         case 5:
-          draw_header("GC16", "Running");
+          draw_header("GC16", "High-quality grayscale");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           for (int i = 0; i < 16; i++) {
@@ -279,7 +409,7 @@ display:
           break;
 
         case 6:
-          draw_header("GLR16", "Running");
+          draw_header("GLR16", "Sparse content with artifact control");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           for (int y = test_y + 24; y < test_y + 324; y += 28) {
@@ -294,7 +424,7 @@ display:
           break;
 
         case 7:
-          draw_header("GLD16", "Running");
+          draw_header("GLD16", "Mixed graphics/text");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           it.rectangle(test_x + 24, test_y + 36, 420, 250, black);
@@ -308,7 +438,7 @@ display:
           break;
 
         case 8:
-          draw_header("INIT", "Running cleanup sequence");
+          draw_header("INIT", "Full panel cleanup");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
           it.rectangle(test_x, test_y, test_w, test_h, black);
           for (int y = test_y + 20; y < test_y + 350; y += 22) {
@@ -319,11 +449,19 @@ display:
           break;
 
         default:
-          draw_header("Invalid page", "Running");
+          draw_header("Invalid demo", "Use double-center to return home");
           it.filled_rectangle(test_x, test_y, test_w, test_h, white);
-          it.print(test_x + 24, test_y + 40, id(mono_22), black, "Invalid page index");
+          it.print(test_x + 24, test_y + 40, id(mono_22), black, "Invalid demo index");
           id(anim_initialized) = false;
           break;
+      }
+
+      if (demo_running) {
+        draw_progress_strip();
+      }
+
+      if (demo_complete) {
+        draw_controls_strip();
       }
 
 script:
@@ -336,37 +474,180 @@ script:
           id(needs_full_clear) = true;
           id(anim_frame) = 0;
           id(anim_initialized) = false;
+          id(test_progress_state) = 0;
+          id(test_progress_pct) = 0;
+          id(test_start_ms) = 0;
+          id(test_last_duration_ms) = 0;
+          id(test_runs) = 0;
+          id(test_completed) = 0;
+          id(report_pending) = false;
+          id(anim_target_frames) = 12;
+          id(anim_last_sample_ms) = 0;
+          id(anim_last_sample_frame) = 0;
+          id(anim_fps_x10) = 0;
+          id(update_started_ms) = 0;
+          id(display_last_update_ms) = 0;
+          id(display_max_update_ms) = 0;
+          id(nav_interrupt_count) = 0;
+          id(home_reset_count) = 0;
+          id(slow_update_count) = 0;
+      - delay: 1200ms
       - component.update: m5paper_display
+      - lambda: |-
+          id(update_started_ms) = millis();
+      - it8951e.update:
+          id: m5paper_display
+          mode: INIT
+          full: true
+      - lambda: |-
+          id(display_last_update_ms) = millis() - id(update_started_ms);
+          if (id(display_last_update_ms) > id(display_max_update_ms)) {
+            id(display_max_update_ms) = id(display_last_update_ms);
+          }
+      - delay: 500ms
+      - component.update: m5paper_display
+      - lambda: |-
+          id(update_started_ms) = millis();
       - it8951e.update:
           id: m5paper_display
           mode: GC16
           full: true
+      - lambda: |-
+          id(display_last_update_ms) = millis() - id(update_started_ms);
+          if (id(display_last_update_ms) > id(display_max_update_ms)) {
+            id(display_max_update_ms) = id(display_last_update_ms);
+          }
 
   - id: reset_to_home
     mode: restart
     then:
+      - script.stop: start_demo
+      - script.stop: show_current_page
       - lambda: |-
           id(current_page) = 0;
           id(test_active) = false;
           id(needs_full_clear) = true;
           id(anim_frame) = 0;
           id(anim_initialized) = false;
-      - script.execute: show_current_page
-
-  - id: start_test
-    mode: restart
-    then:
-      - lambda: |-
-          id(test_active) = true;
-          id(needs_full_clear) = true;
-          id(anim_frame) = 0;
-          id(anim_initialized) = false;
+          id(test_progress_state) = 0;
+          id(test_progress_pct) = 0;
+          id(report_pending) = false;
+          id(anim_last_sample_ms) = 0;
+          id(anim_last_sample_frame) = 0;
+          id(anim_fps_x10) = 0;
+          id(home_reset_count)++;
       - component.update: m5paper_display
+      - lambda: |-
+          id(update_started_ms) = millis();
       - it8951e.update:
           id: m5paper_display
           mode: GC16
           full: true
+      - lambda: |-
+          id(display_last_update_ms) = millis() - id(update_started_ms);
+          if (id(display_last_update_ms) > id(display_max_update_ms)) {
+            id(display_max_update_ms) = id(display_last_update_ms);
+          }
+
+  - id: export_demo_report
+    mode: queued
+    then:
+      - lambda: |-
+          const char *mode = "HOME";
+          switch (id(current_page)) {
+            case 1:
+              mode = "DU";
+              break;
+            case 2:
+              mode = "DU4";
+              break;
+            case 3:
+              mode = "A2";
+              break;
+            case 4:
+              mode = "GL16";
+              break;
+            case 5:
+              mode = "GC16";
+              break;
+            case 6:
+              mode = "GLR16";
+              break;
+            case 7:
+              mode = "GLD16";
+              break;
+            case 8:
+              mode = "INIT";
+              break;
+            default:
+              mode = "HOME";
+              break;
+          }
+          char report[512];
+          snprintf(report, sizeof(report),
+                   "{\"ts_ms\":%lu,\"page\":%d,\"demo\":%d,\"mode\":\"%s\",\"progress\":%d,\"progress_pct\":%d,\"active\":%d,\"duration_ms\":%lu,\"runs\":%d,\"completed\":%d,\"frames\":%d,\"fps\":%d.%d,\"last_update_ms\":%lu,\"max_update_ms\":%lu,\"interrupts\":%d,\"home_resets\":%d,\"slow_updates\":%d}",
+                   static_cast<unsigned long>(millis()), id(current_page), id(current_page), mode,
+                   id(test_progress_state), id(test_progress_pct), id(test_active) ? 1 : 0,
+                   static_cast<unsigned long>(id(test_last_duration_ms)), id(test_runs), id(test_completed),
+                   id(anim_frame), id(anim_fps_x10) / 10, id(anim_fps_x10) % 10,
+                   static_cast<unsigned long>(id(display_last_update_ms)),
+                   static_cast<unsigned long>(id(display_max_update_ms)), id(nav_interrupt_count),
+                   id(home_reset_count), id(slow_update_count));
+          id(it8951e_demo_report).publish_state(report);
+          ESP_LOGI("it8951e.report", "IT8951E_DEMO_REPORT %s", report);
+
+  - id: start_demo
+    mode: restart
+    then:
+      - script.stop: show_current_page
+      - lambda: |-
+          id(test_active) = true;
+          id(needs_full_clear) = false;
+          id(anim_frame) = 0;
+          id(anim_initialized) = false;
+          id(test_progress_state) = 1;
+          id(test_progress_pct) = 10;
+          id(test_start_ms) = millis();
+          id(test_last_duration_ms) = 0;
+          id(test_runs)++;
+          id(report_pending) = false;
+          id(anim_last_sample_ms) = 0;
+          id(anim_last_sample_frame) = 0;
+          id(anim_fps_x10) = 0;
       - script.execute: show_current_page
+      - if:
+          condition:
+            lambda: 'return id(current_page) != 3 && id(current_page) != 8;'
+          then:
+            - delay: 1200ms
+            - if:
+                condition:
+                  lambda: 'return id(test_active) && id(current_page) != 3 && id(current_page) != 8;'
+                then:
+                  - lambda: |-
+                      id(test_progress_pct) = 55;
+                  - script.execute: show_current_page
+            - delay: 1200ms
+            - if:
+                condition:
+                  lambda: 'return id(test_active) && id(current_page) != 3 && id(current_page) != 8;'
+                then:
+                  - lambda: |-
+                      id(test_progress_pct) = 85;
+                  - script.execute: show_current_page
+            - delay: 900ms
+            - if:
+                condition:
+                  lambda: 'return id(test_active) && id(current_page) != 3 && id(current_page) != 8;'
+                then:
+                  - lambda: |-
+                      id(test_progress_state) = 2;
+                      id(test_progress_pct) = 100;
+                      id(test_last_duration_ms) = millis() - id(test_start_ms);
+                      id(test_completed)++;
+                      id(test_active) = false;
+                      id(report_pending) = true;
+                  - script.execute: show_current_page
 
   - id: show_current_page
     mode: restart
@@ -374,81 +655,180 @@ script:
       - component.update: m5paper_display
       - if:
           condition:
-            lambda: 'return id(current_page) == 0 || !id(test_active);'
+            lambda: 'return id(current_page) == 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
+            - it8951e.update:
+                id: m5paper_display
+                mode: GC16
+                full: true
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
+      - if:
+          condition:
+            lambda: 'return id(current_page) != 0 && id(test_progress_state) == 0;'
+          then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: GC16
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 1 && id(test_active);'
+            lambda: 'return id(current_page) == 1 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: DU
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 2 && id(test_active);'
+            lambda: 'return id(current_page) == 2 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: DU4
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 3 && id(test_active);'
+            lambda: 'return id(current_page) == 3 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: A2
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 4 && id(test_active);'
+            lambda: 'return id(current_page) == 4 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: GL16
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 5 && id(test_active);'
+            lambda: 'return id(current_page) == 5 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: GC16
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 6 && id(test_active);'
+            lambda: 'return id(current_page) == 6 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: GLR16
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 7 && id(test_active);'
+            lambda: 'return id(current_page) == 7 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: GLD16
                 full: false
+            - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
       - if:
           condition:
-            lambda: 'return id(current_page) == 8 && id(test_active);'
+            lambda: 'return id(current_page) == 8 && id(test_progress_state) != 0;'
           then:
+            - lambda: |-
+                id(update_started_ms) = millis();
             - it8951e.update:
                 id: m5paper_display
                 mode: INIT
                 full: true
             - lambda: |-
+                id(display_last_update_ms) = millis() - id(update_started_ms);
+                if (id(display_last_update_ms) > id(display_max_update_ms)) {
+                  id(display_max_update_ms) = id(display_last_update_ms);
+                }
+                id(test_progress_state) = 2;
+                id(test_progress_pct) = 100;
+                id(test_last_duration_ms) = millis() - id(test_start_ms);
+                id(test_completed)++;
+                id(report_pending) = true;
                 id(test_active) = false;
                 id(needs_full_clear) = true;
-            - delay: 500ms
-            - script.execute: show_current_page
+            - script.execute: export_demo_report
+            - delay: 250ms
+            - script.execute: reset_to_home
+      - if:
+          condition:
+            lambda: 'return id(report_pending);'
+          then:
+            - script.execute: export_demo_report
+            - lambda: |-
+                id(report_pending) = false;
+      - if:
+          condition:
+            lambda: 'return id(display_last_update_ms) > 4000;'
+          then:
+            - lambda: |-
+                id(slow_update_count)++;
+                ESP_LOGW("it8951e.demo", "Slow display update: %lu ms (demo=%d progress=%d active=%d)",
+                         static_cast<unsigned long>(id(display_last_update_ms)), id(current_page),
+                         id(test_progress_state), id(test_active) ? 1 : 0);
 
 binary_sensor:
   # GPIO39 is mapped as NEXT because on some units this corresponds to the
@@ -462,11 +842,22 @@ binary_sensor:
       inverted: true
     on_release:
       then:
+        - script.stop: start_demo
+        - script.stop: show_current_page
         - lambda: |-
+            if (id(test_active)) {
+              id(nav_interrupt_count)++;
+            }
             id(current_page) = (id(current_page) + 1) % 9;
             id(test_active) = false;
             id(needs_full_clear) = true;
             id(anim_initialized) = false;
+            id(test_progress_state) = 0;
+            id(test_progress_pct) = 0;
+            id(report_pending) = false;
+            id(anim_last_sample_ms) = 0;
+            id(anim_last_sample_frame) = 0;
+            id(anim_fps_x10) = 0;
         - script.execute: show_current_page
 
   # GPIO37 is mapped as PREVIOUS to match the opposite jog direction.
@@ -479,7 +870,12 @@ binary_sensor:
       inverted: true
     on_release:
       then:
+        - script.stop: start_demo
+        - script.stop: show_current_page
         - lambda: |-
+            if (id(test_active)) {
+              id(nav_interrupt_count)++;
+            }
             id(current_page)--;
             if (id(current_page) < 0) {
               id(current_page) = 8;
@@ -487,6 +883,12 @@ binary_sensor:
             id(test_active) = false;
             id(needs_full_clear) = true;
             id(anim_initialized) = false;
+            id(test_progress_state) = 0;
+            id(test_progress_pct) = 0;
+            id(report_pending) = false;
+            id(anim_last_sample_ms) = 0;
+            id(anim_last_sample_frame) = 0;
+            id(anim_fps_x10) = 0;
         - script.execute: show_current_page
 
   - platform: gpio
@@ -497,6 +899,11 @@ binary_sensor:
       mode: INPUT
       inverted: true
     on_multi_click:
+      - timing:
+          - ON for at least 1200ms
+          - OFF for at least 250ms
+        then:
+          - script.execute: export_demo_report
       - timing:
           - ON for at most 350ms
           - OFF for at most 300ms
@@ -517,20 +924,45 @@ binary_sensor:
               condition:
                 lambda: 'return id(current_page) != 0 && !id(test_active);'
               then:
-                - script.execute: start_test
+                - script.execute: start_demo
           - if:
               condition:
                 lambda: 'return id(current_page) != 0 && id(test_active);'
               then:
-                - script.execute: show_current_page
+                - script.execute: start_demo
 
 interval:
-  - interval: 400ms
+  - interval: 700ms
     then:
       - if:
           condition:
-            lambda: 'return id(current_page) == 3 && id(test_active);'
+            lambda: 'return id(current_page) == 3 && id(test_active) && id(test_progress_state) == 1;'
           then:
             - lambda: |-
+                const uint32_t now = millis();
+                if (id(anim_last_sample_ms) == 0) {
+                  id(anim_last_sample_ms) = now;
+                  id(anim_last_sample_frame) = id(anim_frame);
+                } else {
+                  const uint32_t dt = now - id(anim_last_sample_ms);
+                  if (dt >= 1000) {
+                    const int frame_delta = id(anim_frame) - id(anim_last_sample_frame);
+                    id(anim_fps_x10) = (frame_delta * 10000) / static_cast<int>(dt);
+                    id(anim_last_sample_ms) = now;
+                    id(anim_last_sample_frame) = id(anim_frame);
+                  }
+                }
                 id(anim_frame)++;
+                if (id(anim_target_frames) > 0) {
+                  const int progress = 10 + ((id(anim_frame) * 80) / id(anim_target_frames));
+                  id(test_progress_pct) = progress > 95 ? 95 : progress;
+                }
+                if (id(anim_frame) >= id(anim_target_frames)) {
+                  id(test_progress_state) = 2;
+                  id(test_progress_pct) = 100;
+                  id(test_last_duration_ms) = millis() - id(test_start_ms);
+                  id(test_completed)++;
+                  id(test_active) = false;
+                  id(report_pending) = true;
+                }
             - script.execute: show_current_page
