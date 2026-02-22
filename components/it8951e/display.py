@@ -1,5 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.automation as automation
+
 from esphome.components import display, spi
 from esphome.const import (
     CONF_ID,
@@ -11,28 +13,25 @@ from esphome.const import (
     CONF_UPDATE_INTERVAL,
 )
 
-# Component namespace
-it8951e_ns = cg.esphome_ns.namespace("it8951e")
+from . import it8951e_ns
+
 IT8951EDisplay = it8951e_ns.class_("IT8951EDisplay", display.DisplayBuffer, cg.PollingComponent)
 
-# If your C++ class/namespace names differ, keep the schema logic and adjust these names.
-IT8951EUpdateAction = it8951e_ns.class_("IT8951EUpdateAction", cg.Action)
-IT8951EClearAction = it8951e_ns.class_("IT8951EClearAction", cg.Action)
+# Update modes enum declared in C++
+UpdateMode = it8951e_ns.enum("UpdateMode")
 
-# Keys used by this component
 CONF_SPI_ID = "spi_id"
 CONF_MODE = "mode"
 CONF_FULL = "full"
 
-# Display update modes (schema validated)
 UPDATE_MODES = {
-    "DU": it8951e_ns.enum("UpdateMode").DU,
-    "DU4": it8951e_ns.enum("UpdateMode").DU4,
-    "A2": it8951e_ns.enum("UpdateMode").A2,
-    "GL16": it8951e_ns.enum("UpdateMode").GL16,
-    "GC16": it8951e_ns.enum("UpdateMode").GC16,
-    "INIT": it8951e_ns.enum("UpdateMode").INIT,
-    "NONE": it8951e_ns.enum("UpdateMode").NONE,
+    "DU": UpdateMode.DU,
+    "DU4": UpdateMode.DU4,
+    "A2": UpdateMode.A2,
+    "GL16": UpdateMode.GL16,
+    "GC16": UpdateMode.GC16,
+    "INIT": UpdateMode.INIT,
+    "NONE": UpdateMode.NONE,
 }
 
 DEFAULT_MODE = "GC16"
@@ -50,22 +49,6 @@ CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
     }
 ).extend(cv.polling_component_schema("never"))
 
-# Actions
-IT8951E_UPDATE_ACTION_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.use_id(IT8951EDisplay),
-        cv.Optional(CONF_MODE, default=DEFAULT_MODE): cv.enum(UPDATE_MODES, upper=True),
-        cv.Optional(CONF_FULL, default=True): cv.boolean,
-    }
-)
-
-IT8951E_CLEAR_ACTION_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.use_id(IT8951EDisplay),
-    }
-)
-
-
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -77,6 +60,7 @@ async def to_code(config):
     cs = await cg.gpio_pin_expression(config[CONF_CS_PIN])
     rst = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
     busy = await cg.gpio_pin_expression(config[CONF_BUSY_PIN])
+
     cg.add(var.set_cs_pin(cs))
     cg.add(var.set_reset_pin(rst))
     cg.add(var.set_busy_pin(busy))
@@ -85,17 +69,49 @@ async def to_code(config):
     cg.add(var.set_reversed(config[CONF_REVERSED]))
 
 
-@cv.register_action("it8951e.update", IT8951EUpdateAction, IT8951E_UPDATE_ACTION_SCHEMA)
+# Actions
+IT8951EUpdateAction = it8951e_ns.class_(
+    "IT8951EUpdateAction",
+    automation.Action,
+)
+
+IT8951EClearAction = it8951e_ns.class_(
+    "IT8951EClearAction",
+    automation.Action,
+)
+
+IT8951E_UPDATE_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(IT8951EDisplay),
+        cv.Optional(CONF_MODE, default=DEFAULT_MODE): cv.enum(UPDATE_MODES, upper=True),
+        cv.Optional(CONF_FULL, default=True): cv.boolean,
+    }
+)
+
+IT8951E_CLEAR_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(IT8951EDisplay),
+    }
+)
+
+@automation.register_action(
+    "it8951e.update",
+    IT8951EUpdateAction,
+    IT8951E_UPDATE_ACTION_SCHEMA,
+)
 async def it8951e_update_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
-
     cg.add(var.set_mode(config[CONF_MODE]))
     cg.add(var.set_full(config[CONF_FULL]))
     return var
 
 
-@cv.register_action("it8951e.clear", IT8951EClearAction, IT8951E_CLEAR_ACTION_SCHEMA)
+@automation.register_action(
+    "it8951e.clear",
+    IT8951EClearAction,
+    IT8951E_CLEAR_ACTION_SCHEMA,
+)
 async def it8951e_clear_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
