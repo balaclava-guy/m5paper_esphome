@@ -10,25 +10,18 @@ namespace it8951e {
 
 enum it8951eModel {
   M5EPD = 0,
-  it8951eModelsEND  // MUST be last
+  it8951eModelsEND
 };
 
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2023, 12, 0)
 class IT8951ESensor : public display::DisplayBuffer,
 #else
 class IT8951ESensor : public PollingComponent, public display::DisplayBuffer,
-#endif  // VERSION_CODE(2023, 12, 0)
+#endif
                       public spi::SPIDevice {
  public:
   float get_loop_priority() const override { return 0.0f; }
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
-
-  /* ---------------------------------------- Refresh mode description ----------------------------------------
-   INIT
-   The initialization (INIT) mode is used to completely erase the display and leave it in the white state.
-   ...
-   (kept as-is)
-  */
 
   struct IT8951DevInfo_s {
     int usPanelW;
@@ -44,6 +37,15 @@ class IT8951ESensor : public PollingComponent, public display::DisplayBuffer,
     display::DisplayType displayType;
   };
 
+  // Update modes:
+  // INIT  - full clean/flash erase, slowest, best for removing ghosting.
+  // DU    - very fast B/W, minimal flashing; great for boot splash + small deltas.
+  // DU4   - fast 4-level grayscale-ish; trade quality for speed.
+  // A2    - fast B/W intended for frequent changes; more ghosting.
+  // GL16  - medium speed grayscale; good for text/lines.
+  // GC16  - full quality grayscale; slowest normal mode.
+  // GLR16/GLD16 - LUT waveform variants; usefulness depends on panel/LUT.
+  // NONE  - no update.
   enum update_mode_e {
     UPDATE_MODE_INIT = 0,
     UPDATE_MODE_DU = 1,
@@ -82,14 +84,13 @@ class IT8951ESensor : public PollingComponent, public display::DisplayBuffer,
 
  private:
   struct IT8951Dev_s IT8951DevAll[it8951eModel::it8951eModelsEND]{
-      // it8951eModel::M5EPD
-      960,  // .devInfo.usPanelW
-      540,  // .devInfo.usPanelH
-      0x36E0,  // .devInfo.usImgBufAddrL
-      0x0012,  // .devInfo.usImgBufAddrH
-      "",  // .devInfo.usFWVersion
-      "",  // .devInfo.usLUTVersion
-      display::DisplayType::DISPLAY_TYPE_GRAYSCALE  // .displayType
+      960,
+      540,
+      0x36E0,
+      0x0012,
+      "",
+      "",
+      display::DisplayType::DISPLAY_TYPE_GRAYSCALE
   };
 
   void get_device_info(struct IT8951DevInfo_s *info);
@@ -154,22 +155,14 @@ template <typename... Ts> class DrawAction : public Action<Ts...>, public Parent
   void play(const Ts &... x) override { this->parent_->write_display(IT8951ESensor::UPDATE_MODE_DU); }
 };
 
-// New: DU4
-template <typename... Ts> class UpdateFastAction : public Action<Ts...>, public Parented<IT8951ESensor> {
+// New: parameterized update
+template <typename... Ts> class UpdateModeAction : public Action<Ts...>, public Parented<IT8951ESensor> {
  public:
-  void play(const Ts &... x) override { this->parent_->write_display(IT8951ESensor::UPDATE_MODE_DU4); }
-};
+  void set_mode(IT8951ESensor::update_mode_e mode) { this->mode_ = mode; }
+  void play(const Ts &... x) override { this->parent_->write_display(this->mode_); }
 
-// New: A2
-template <typename... Ts> class UpdateA2Action : public Action<Ts...>, public Parented<IT8951ESensor> {
- public:
-  void play(const Ts &... x) override { this->parent_->write_display(IT8951ESensor::UPDATE_MODE_A2); }
-};
-
-// New: GL16
-template <typename... Ts> class UpdateGL16Action : public Action<Ts...>, public Parented<IT8951ESensor> {
- public:
-  void play(const Ts &... x) override { this->parent_->write_display(IT8951ESensor::UPDATE_MODE_GL16); }
+ protected:
+  IT8951ESensor::update_mode_e mode_{IT8951ESensor::UPDATE_MODE_DU};
 };
 
 }  // namespace it8951e
