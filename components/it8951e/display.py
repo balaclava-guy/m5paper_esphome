@@ -1,7 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import core, pins
-from esphome import automation
+from esphome import core, pins, automation
 from esphome.components import display, spi
 from esphome.const import __version__ as ESPHOME_VERSION
 from esphome.const import (
@@ -20,6 +19,7 @@ from esphome.const import (
 DEPENDENCIES = ["spi"]
 
 it8951e_ns = cg.esphome_ns.namespace("it8951e")
+
 IT8951ESensor = it8951e_ns.class_(
     "IT8951ESensor",
     cg.PollingComponent,
@@ -36,7 +36,6 @@ DrawAction = it8951e_ns.class_("DrawAction", automation.Action)
 UpdateModeAction = it8951e_ns.class_("UpdateModeAction", automation.Action)
 
 it8951eModel = it8951e_ns.enum("it8951eModel")
-
 MODELS = {
     "M5EPD": it8951eModel.M5EPD,
 }
@@ -53,7 +52,6 @@ UpdateMode = it8951e_ns.enum("update_mode_e")
 # GC16  - full quality grayscale update, slowest “normal” mode.
 # GLR16/GLD16 - variants used for different waveform behavior; depends on panel/LUT.
 # NONE  - no update.
-
 UPDATE_MODES = {
     "INIT": UpdateMode.UPDATE_MODE_INIT,
     "DU": UpdateMode.UPDATE_MODE_DU,
@@ -90,6 +88,7 @@ CONFIG_SCHEMA = cv.All(
     .extend(spi.spi_device_schema()),
 )
 
+
 @automation.register_action(
     "it8951e.clear",
     ClearAction,
@@ -99,6 +98,12 @@ CONFIG_SCHEMA = cv.All(
         }
     ),
 )
+async def it8951e_clear_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
 @automation.register_action(
     "it8951e.updateslow",
     UpdateSlowAction,
@@ -108,6 +113,12 @@ CONFIG_SCHEMA = cv.All(
         }
     ),
 )
+async def it8951e_updateslow_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
 @automation.register_action(
     "it8951e.draw",
     DrawAction,
@@ -117,17 +128,26 @@ CONFIG_SCHEMA = cv.All(
         }
     ),
 )
+async def it8951e_draw_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
 
-# New: one action with a mode parameter.
-# We add an optional 'description' field purely for humans; some editors show it, many won't,
-# but it never harms validation.
+
+# New: one action with an (optional) mode parameter.
+# Backward-compatible with "simple id" usage:
+#   - it8951e.update: epaper_display
+# And supports explicit:
+#   - it8951e.update:
+#       id: epaper_display
+#       mode: DU
 @automation.register_action(
     "it8951e.update",
     UpdateModeAction,
-    cv.Schema(
+    automation.maybe_simple_id(
         {
-            cv.Required(CONF_ID): cv.use_id(IT8951ESensor),
-            cv.Required(CONF_MODE): cv.enum(UPDATE_MODES, upper=True),
+            cv.GenerateID(): cv.use_id(IT8951ESensor),
+            cv.Optional(CONF_MODE, default="GC16"): cv.enum(UPDATE_MODES, upper=True),
             cv.Optional(CONF_DESCRIPTION): cv.string,
         }
     ),
@@ -138,22 +158,6 @@ async def it8951e_update_to_code(config, action_id, template_arg, args):
     cg.add(var.set_mode(config[CONF_MODE]))
     # 'description' is intentionally ignored at codegen time.
     return var
-
-
-async def it8951e_clear_to_code(config, action_id, template_arg, args):
-    var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_ID])
-    return var
-
-
-async def it8951e_simple_parented_action_to_code(config, action_id, template_arg, args):
-    var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_ID])
-    return var
-
-
-it8951e_updateslow_to_code = it8951e_simple_parented_action_to_code
-it8951e_draw_to_code = it8951e_simple_parented_action_to_code
 
 
 async def to_code(config):
@@ -170,7 +174,9 @@ async def to_code(config):
 
     if CONF_LAMBDA in config:
         lambda_ = await cg.process_lambda(
-            config[CONF_LAMBDA], [(display.DisplayRef, "it")], return_type=cg.void
+            config[CONF_LAMBDA],
+            [(display.DisplayRef, "it")],
+            return_type=cg.void,
         )
         cg.add(var.set_writer(lambda_))
 
