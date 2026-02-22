@@ -64,3 +64,5 @@ Supported `mode` values:
 - `DU4`
 - `A2`
 - `NONE`
+
+If rendered colors look inverted on your panel, set `reversed: true`.
