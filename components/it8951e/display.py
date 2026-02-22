@@ -3,6 +3,7 @@ import esphome.config_validation as cv
 import esphome.automation as automation
 
 from esphome.components import display, spi
+from esphome import pins
 from esphome.const import (
     CONF_ID,
     CONF_CS_PIN,
@@ -17,7 +18,6 @@ from . import it8951e_ns
 
 IT8951EDisplay = it8951e_ns.class_("IT8951EDisplay", display.DisplayBuffer, cg.PollingComponent)
 
-# Update modes enum declared in C++
 UpdateMode = it8951e_ns.enum("UpdateMode")
 
 CONF_SPI_ID = "spi_id"
@@ -40,9 +40,12 @@ CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(IT8951EDisplay),
         cv.Required(CONF_SPI_ID): cv.use_id(spi.SPIComponent),
-        cv.Required(CONF_CS_PIN): cv.pin,
-        cv.Required(CONF_RESET_PIN): cv.pin,
-        cv.Required(CONF_BUSY_PIN): cv.pin,
+
+        # Pin schemas must come from esphome.pins, not cv.pin
+        cv.Required(CONF_CS_PIN): pins.internal_gpio_output_pin_schema,
+        cv.Required(CONF_RESET_PIN): pins.internal_gpio_output_pin_schema,
+        cv.Required(CONF_BUSY_PIN): pins.internal_gpio_input_pin_schema,
+
         cv.Optional(CONF_ROTATION, default=0): cv.int_,
         cv.Optional(CONF_REVERSED, default=False): cv.boolean,
         cv.Optional(CONF_UPDATE_INTERVAL, default="never"): cv.update_interval,
@@ -69,16 +72,8 @@ async def to_code(config):
     cg.add(var.set_reversed(config[CONF_REVERSED]))
 
 
-# Actions
-IT8951EUpdateAction = it8951e_ns.class_(
-    "IT8951EUpdateAction",
-    automation.Action,
-)
-
-IT8951EClearAction = it8951e_ns.class_(
-    "IT8951EClearAction",
-    automation.Action,
-)
+IT8951EUpdateAction = it8951e_ns.class_("IT8951EUpdateAction", automation.Action)
+IT8951EClearAction = it8951e_ns.class_("IT8951EClearAction", automation.Action)
 
 IT8951E_UPDATE_ACTION_SCHEMA = cv.Schema(
     {
@@ -94,11 +89,7 @@ IT8951E_CLEAR_ACTION_SCHEMA = cv.Schema(
     }
 )
 
-@automation.register_action(
-    "it8951e.update",
-    IT8951EUpdateAction,
-    IT8951E_UPDATE_ACTION_SCHEMA,
-)
+@automation.register_action("it8951e.update", IT8951EUpdateAction, IT8951E_UPDATE_ACTION_SCHEMA)
 async def it8951e_update_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
@@ -106,12 +97,7 @@ async def it8951e_update_to_code(config, action_id, template_arg, args):
     cg.add(var.set_full(config[CONF_FULL]))
     return var
 
-
-@automation.register_action(
-    "it8951e.clear",
-    IT8951EClearAction,
-    IT8951E_CLEAR_ACTION_SCHEMA,
-)
+@automation.register_action("it8951e.clear", IT8951EClearAction, IT8951E_CLEAR_ACTION_SCHEMA)
 async def it8951e_clear_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, parent)
