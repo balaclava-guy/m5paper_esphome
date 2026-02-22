@@ -1,157 +1,103 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import pins
-from esphome import automation
 from esphome.components import display, spi
 from esphome.const import (
     CONF_ID,
+    CONF_CS_PIN,
     CONF_RESET_PIN,
-    CONF_RESET_DURATION,
     CONF_BUSY_PIN,
-    CONF_LAMBDA,
-    CONF_MODEL,
+    CONF_ROTATION,
     CONF_REVERSED,
+    CONF_UPDATE_INTERVAL,
 )
 
-DEPENDENCIES = ["spi"]
-
+# Component namespace
 it8951e_ns = cg.esphome_ns.namespace("it8951e")
+IT8951EDisplay = it8951e_ns.class_("IT8951EDisplay", display.DisplayBuffer, cg.PollingComponent)
 
-IT8951ESensor = it8951e_ns.class_(
-    "IT8951ESensor",
-    cg.PollingComponent,
-    spi.SPIDevice,
-    display.DisplayBuffer,
-    display.Display,
-)
+# If your C++ class/namespace names differ, keep the schema logic and adjust these names.
+IT8951EUpdateAction = it8951e_ns.class_("IT8951EUpdateAction", cg.Action)
+IT8951EClearAction = it8951e_ns.class_("IT8951EClearAction", cg.Action)
 
-ClearAction = it8951e_ns.class_("ClearAction", automation.Action)
-UpdateAction = it8951e_ns.class_("UpdateAction", automation.Action)
-
-it8951eModel = it8951e_ns.enum("it8951eModel")
-update_mode_e = it8951e_ns.enum("update_mode_e")
-
+# Keys used by this component
+CONF_SPI_ID = "spi_id"
 CONF_MODE = "mode"
 CONF_FULL = "full"
 
-# Notes for users (shown via option descriptions below):
-# - INIT: panel init refresh (slow)
-# - DU / DU4 / A2: fast modes, best for UI/status overlays
-# - GC16 / GL16 / GLR16 / GLD16: higher quality grayscale modes
-MODES = {
-    "INIT": update_mode_e.UPDATE_MODE_INIT,
-    "DU": update_mode_e.UPDATE_MODE_DU,
-    "GC16": update_mode_e.UPDATE_MODE_GC16,
-    "GL16": update_mode_e.UPDATE_MODE_GL16,
-    "GLR16": update_mode_e.UPDATE_MODE_GLR16,
-    "GLD16": update_mode_e.UPDATE_MODE_GLD16,
-    "DU4": update_mode_e.UPDATE_MODE_DU4,
-    "A2": update_mode_e.UPDATE_MODE_A2,
-    "NONE": update_mode_e.UPDATE_MODE_NONE,
+# Display update modes (schema validated)
+UPDATE_MODES = {
+    "DU": it8951e_ns.enum("UpdateMode").DU,
+    "DU4": it8951e_ns.enum("UpdateMode").DU4,
+    "A2": it8951e_ns.enum("UpdateMode").A2,
+    "GL16": it8951e_ns.enum("UpdateMode").GL16,
+    "GC16": it8951e_ns.enum("UpdateMode").GC16,
+    "INIT": it8951e_ns.enum("UpdateMode").INIT,
+    "NONE": it8951e_ns.enum("UpdateMode").NONE,
 }
 
-MODELS = {
-    "M5EPD": it8951eModel.M5EPD,
-}
+DEFAULT_MODE = "GC16"
 
-CONFIG_SCHEMA = (
-    display.FULL_DISPLAY_SCHEMA.extend(
-        {
-            cv.GenerateID(): cv.declare_id(IT8951ESensor),
-            cv.Required(CONF_RESET_PIN): pins.gpio_output_pin_schema,
-            cv.Required(CONF_BUSY_PIN): pins.gpio_input_pin_schema,
-            cv.Optional(
-                CONF_REVERSED,
-                default=False,
-                description="Invert pixel values in the frame buffer (panel-specific).",
-            ): cv.boolean,
-            cv.Optional(
-                CONF_RESET_DURATION,
-                default="100ms",
-                description="Reset pulse low duration. Keep under 500ms.",
-            ): cv.All(
-                cv.positive_time_period_milliseconds,
-                cv.Range(max=cv.TimePeriod(milliseconds=500)),
-            ),
-            cv.Optional(
-                CONF_MODEL,
-                default="M5EPD",
-                description="Panel model preset (M5Paper uses M5EPD).",
-            ): cv.enum(MODELS, upper=True, space="_"),
-        }
-    )
-    .extend(cv.polling_component_schema("1s"))
-    .extend(spi.spi_device_schema())
+CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
+    {
+        cv.GenerateID(): cv.declare_id(IT8951EDisplay),
+        cv.Required(CONF_SPI_ID): cv.use_id(spi.SPIComponent),
+        cv.Required(CONF_CS_PIN): cv.pin,
+        cv.Required(CONF_RESET_PIN): cv.pin,
+        cv.Required(CONF_BUSY_PIN): cv.pin,
+        cv.Optional(CONF_ROTATION, default=0): cv.int_,
+        cv.Optional(CONF_REVERSED, default=False): cv.boolean,
+        cv.Optional(CONF_UPDATE_INTERVAL, default="never"): cv.update_interval,
+    }
+).extend(cv.polling_component_schema("never"))
+
+# Actions
+IT8951E_UPDATE_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(IT8951EDisplay),
+        cv.Optional(CONF_MODE, default=DEFAULT_MODE): cv.enum(UPDATE_MODES, upper=True),
+        cv.Optional(CONF_FULL, default=True): cv.boolean,
+    }
 )
 
-@automation.register_action(
-    "it8951e.clear",
-    ClearAction,
-    automation.maybe_simple_id(
-        {
-            cv.GenerateID(): cv.use_id(IT8951ESensor),
-        }
-    ),
+IT8951E_CLEAR_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.use_id(IT8951EDisplay),
+    }
 )
-async def it8951e_clear_to_code(config, action_id, template_arg, args):
-    var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_ID])
-    return var
 
-@automation.register_action(
-    "it8951e.update",
-    UpdateAction,
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.use_id(IT8951ESensor),
-            cv.Optional(
-                CONF_MODE,
-                default="GC16",
-                description=(
-                    "Refresh waveform mode. "
-                    "Use DU/DU4/A2 for fast status updates; "
-                    "use GC16/GL16 for higher quality."
-                ),
-            ): cv.enum(MODES, upper=True, space="_"),
-            cv.Optional(
-                CONF_FULL,
-                default=False,
-                description="If true, refresh the full panel area regardless of dirty region tracking.",
-            ): cv.boolean,
-        }
-    ),
-)
+
+async def to_code(config):
+    var = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(var, config)
+    await display.register_display(var, config)
+
+    spi_dev = await cg.get_variable(config[CONF_SPI_ID])
+    cg.add(var.set_spi(spi_dev))
+
+    cs = await cg.gpio_pin_expression(config[CONF_CS_PIN])
+    rst = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
+    busy = await cg.gpio_pin_expression(config[CONF_BUSY_PIN])
+    cg.add(var.set_cs_pin(cs))
+    cg.add(var.set_reset_pin(rst))
+    cg.add(var.set_busy_pin(busy))
+
+    cg.add(var.set_rotation(config[CONF_ROTATION]))
+    cg.add(var.set_reversed(config[CONF_REVERSED]))
+
+
+@cv.register_action("it8951e.update", IT8951EUpdateAction, IT8951E_UPDATE_ACTION_SCHEMA)
 async def it8951e_update_to_code(config, action_id, template_arg, args):
-    var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_ID])
+    parent = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, parent)
+
     cg.add(var.set_mode(config[CONF_MODE]))
     cg.add(var.set_full(config[CONF_FULL]))
     return var
 
-async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
 
-    # ESPHome 2026.x: always register. Older conditional gating breaks modern builds.
-    await cg.register_component(var, config)
-    await display.register_display(var, config)
-    await spi.register_spi_device(var, config)
-
-    cg.add(var.set_model(config[CONF_MODEL]))
-
-    if CONF_LAMBDA in config:
-        lambda_ = await cg.process_lambda(
-            config[CONF_LAMBDA],
-            [(display.DisplayRef, "it")],
-            return_type=cg.void,
-        )
-        cg.add(var.set_writer(lambda_))
-
-    reset = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
-    cg.add(var.set_reset_pin(reset))
-
-    busy = await cg.gpio_pin_expression(config[CONF_BUSY_PIN])
-    cg.add(var.set_busy_pin(busy))
-
-    cg.add(var.set_reversed(config[CONF_REVERSED]))
-    cg.add(var.set_reset_duration(config[CONF_RESET_DURATION]))
+@cv.register_action("it8951e.clear", IT8951EClearAction, IT8951E_CLEAR_ACTION_SCHEMA)
+async def it8951e_clear_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, parent)
+    return var
 
