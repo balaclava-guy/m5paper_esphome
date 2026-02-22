@@ -1,94 +1,150 @@
 #pragma once
 
-#include "esphome/core/component.h"
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/spi/spi.h"
+#include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
+
+#include "it8951.h"
 
 namespace esphome {
 namespace it8951e {
 
-enum it8951eModel : uint8_t {
+enum it8951eModel {
   M5EPD = 0,
+  it8951eModelsEND  // MUST be last
 };
 
-// Keep these names stable because they appear in YAML.
-enum it8951eUpdateMode : uint8_t {
-  DU = 0,
-  DU4 = 1,
-  A2 = 2,
-  GL16 = 3,
-  GC16 = 4,
+// Waveform update modes.  [oai_citation:10‡juju.nz](https://juju.nz/src/michaelh/pipish/src/branch/main/components/it8951e/it8951e.h)
+enum update_mode_e {
+  UPDATE_MODE_INIT = 0,
+  UPDATE_MODE_DU = 1,
+  UPDATE_MODE_GC16 = 2,
+  UPDATE_MODE_GL16 = 3,
+  UPDATE_MODE_GLR16 = 4,
+  UPDATE_MODE_GLD16 = 5,
+  UPDATE_MODE_DU4 = 6,
+  UPDATE_MODE_A2 = 7,
+  UPDATE_MODE_NONE = 8,
 };
 
-class IT8951ESensor : public PollingComponent,
-                      public display::DisplayBuffer,
-                      public display::Display,
-                      public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST,
-                                           spi::CLOCK_POLARITY_LOW,
-                                           spi::CLOCK_PHASE_LEADING,
-                                           spi::DATA_RATE_20MHZ> {
+struct IT8951DevInfo_s {
+  uint16_t usPanelW;
+  uint16_t usPanelH;
+  uint16_t usImgBufAddrL;
+  uint16_t usImgBufAddrH;
+  char usFWVersion[16];
+  char usLUTVersion[16];
+};
+
+struct IT8951Dev_s {
+  IT8951DevInfo_s devInfo;
+  display::DisplayType displayType;
+};
+
+class IT8951ESensor : public display::DisplayBuffer,
+                      public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW,
+                                            spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_10MHZ> {
  public:
   void setup() override;
-  void update() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::HARDWARE; }
+  void update() override;
 
-  void set_model(it8951eModel model) { this->model_ = model; }
-  void set_reset_pin(GPIOPin *pin) { this->reset_pin_ = pin; }
-  void set_busy_pin(GPIOPin *pin) { this->busy_pin_ = pin; }
-  void set_reversed(bool reversed) { this->reversed_ = reversed; }
-  void set_reset_duration(uint32_t reset_duration_ms) { this->reset_duration_ms_ = reset_duration_ms; }
-  void set_sleep_when_done(bool sleep_when_done) { this->sleep_when_done_ = sleep_when_done; }
-  void set_full_update_every(uint32_t every) { this->full_update_every_ = every; }
+  void set_reset_pin(GPIOPin *pin) { reset_pin_ = pin; }
+  void set_busy_pin(GPIOPin *pin) { busy_pin_ = pin; }
+  void set_reversed(bool reversed) { reversed_ = reversed; }
+  void set_reset_duration(uint32_t ms) { reset_duration_ms_ = ms; }
+  void set_model(it8951eModel model) { model_ = model; }
 
-  // New: selectable update mode (used by it8951e.update action)
-  void set_mode(it8951eUpdateMode mode) { this->pending_mode_ = mode; }
+  // Clear IT8951 internal memory buffer and optionally INIT refresh.
+  void clear(bool init_refresh);
 
-  // Actions already used by your YAML
-  void clear(bool init = false);
-  void updateslow();
-  void draw();
+  // Explicit refresh with requested update mode.
+  // If full is true, refresh entire panel.
+  void update_with_mode(update_mode_e mode, bool full);
 
-  // DisplayBuffer overrides
   int get_width_internal() override;
   int get_height_internal() override;
-  void draw_absolute_pixel_internal(int x, int y, Color color) override;
 
  protected:
-  // SPI helpers / IT8951 protocol helpers
-  void hard_reset_();
-  bool wait_while_busy_(uint32_t timeout_ms);
+  void draw_absolute_pixel_internal(int x, int y, Color color) override;
 
-  void write_two_byte16(uint16_t type, uint16_t cmd);
-  uint16_t read_word();
-  void read_words(void *data, uint32_t len);
-  void write_reg(uint16_t addr, uint16_t data);
+ private:
+  static const char *const TAG;
 
-  void write_buffer_to_display(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *buffer);
-
-  void update_display_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, it8951eUpdateMode mode);
-
-  // State
-  it8951eModel model_{M5EPD};
+  IT8951Dev_s devs_[it8951eModel::it8951eModelsEND] = {
+      // M5EPD (M5Paper)
+      {
+          // devInfo
+          {
+              960,    // W
+              540,    // H
+              0x36E0, // ImgBufAddrL (common M5Paper value)
+              0x0012, // ImgBufAddrH
+              "",     // FW
+              "",     // LUT
+          },
+          // displayType
+          display::DisplayType::DISPLAY_TYPE_GRAYSCALE,
+      },
+  };
 
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *busy_pin_{nullptr};
 
   bool reversed_{false};
-  uint32_t reset_duration_ms_{200};
-  bool sleep_when_done_{true};
-  uint32_t full_update_every_{60};
-  uint32_t update_counter_{0};
+  uint32_t reset_duration_ms_{100};
+  it8951eModel model_{it8951eModel::M5EPD};
 
-  // New: mode requested by the parameterised update action
-  it8951eUpdateMode pending_mode_{GC16};
+  // Dirty tracking (simple bounding box from origin).
+  // This matches the common approach in this component lineage.  [oai_citation:11‡juju.nz](https://juju.nz/src/michaelh/pipish/src/branch/main/components/it8951e/it8951e.cpp)
+  uint16_t max_x_{0};
+  uint16_t max_y_{0};
 
-  // Panel / controller info
-  uint16_t panel_w_{960};
-  uint16_t panel_h_{540};
+  // IT8951 load image state
+  uint16_t endian_{IT8951_LDIMG_B_ENDIAN};
+  uint16_t pix_bpp_{IT8951_4BPP};
 
-  // Framebuffer pointers/etc are defined in your .cpp
+  void reset_();
+  void wait_busy_(uint32_t timeout_ms);
+  void check_busy_(uint32_t timeout_ms);
+
+  void write_u16_(uint16_t value);
+  uint16_t read_u16_();
+
+  void write_command_(uint16_t cmd);
+  void write_word_(uint16_t data);
+  void write_reg_(uint16_t addr, uint16_t data);
+  void set_target_memory_addr_(uint16_t addr_l, uint16_t addr_h);
+
+  void write_args_(uint16_t cmd, const uint16_t *args, uint16_t length);
+  void set_area_(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  void update_area_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, update_mode_e mode);
+
+  void write_buffer_to_display_(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *gram);
+
+  uint32_t buffer_length_() const;
+  void clamp_region_(uint16_t &x, uint16_t &y, uint16_t &w, uint16_t &h) const;
+};
+
+template<typename... Ts> class ClearAction : public Action<Ts...>, public Parented<IT8951ESensor> {
+ public:
+  void play(Ts... x) override { this->parent_->clear(true); }
+};
+
+template<typename... Ts> class UpdateAction : public Action<Ts...>, public Parented<IT8951ESensor> {
+ public:
+  void set_mode(update_mode_e mode) { this->mode_ = mode; }
+  void set_full(bool full) { this->full_ = full; }
+
+  void play(Ts... x) override { this->parent_->update_with_mode(this->mode_, this->full_); }
+
+ private:
+  update_mode_e mode_{update_mode_e::UPDATE_MODE_GC16};
+  bool full_{false};
 };
 
 }  // namespace it8951e
 }  // namespace esphome
+
